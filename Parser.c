@@ -6,14 +6,16 @@
 #include <regex.h>
 
 #define BUFFERSIZE 5000
-#define NUM_THREADS 1
+#define NUM_THREADS 2
 #define MAX_LINE_LENGTH 100
 #define expresion "war"
 #define texto "wap1200.txt"
+#define MAX_OUTPUT_SIZE 1000000
 
 // Global
 int pointerByte = 0;
 pthread_mutex_t mutex,mutex2;
+char output[MAX_OUTPUT_SIZE];
 
 struct thread_data {
   int thread_id;
@@ -23,36 +25,40 @@ struct thread_data {
 struct thread_data thread_data_array[NUM_THREADS];
 
 
-void procesar(char * buffer,int id){
-    
-    
+void procesar(char * buffer){
+    /*
+    -Recibe un Buffer tamanno BUFFERSIZE con lineas
+    -Lee linea por linea y analiza regex en c/u
+    -Si encuentra match, agrega linea a output buffer (gigante)
+    */
     int test = 0;
+    
     int status2;
     regex_t regex;
     int reti;
     
     char *line = strtok(buffer, "\n");
+    //procesa el buffer linea por linea
     while (line != NULL) {
     	
-        //printf("%s\n", line);
         reti = regcomp(&regex, expresion, 0);
 	if (reti) {
-	    status2 = pthread_mutex_lock(&mutex2);
-	    fprintf(stderr, "Could not compile regex\n");
-	    status2 = pthread_mutex_unlock(&mutex2);
-  	    //return 1;
+	    //fprintf(stderr, "Could not compile regex\n");
 	}
-	   
+	  
 	// Execute regular expression
 	reti = regexec(&regex, line, 0, NULL, 0);
 	if (!reti) {
-	    status2 = pthread_mutex_lock(&mutex2);
-	    printf("\n-----\n");
-	    printf("Thread id: %d found match: %s: \n",id,line);
+	    pthread_mutex_lock(&mutex);
+	    strcat(output,line);
+	    strcat(output,"\n");
+	    sleep(0.2);
+	    pthread_mutex_unlock(&mutex);
+	    //printf("\n-----\n");
+	    //printf("Thread id: %d found match: %s: \n",id,line);
             //printf(line);
-            printf("\n-----\n");
-            status2 = pthread_mutex_unlock(&mutex2);
-	    test++;
+            //printf("\n-----\n");
+	    //test++;
 	} 
 	else if (reti == REG_NOMATCH) {
 		
@@ -60,23 +66,22 @@ void procesar(char * buffer,int id){
 	} 
 	else {
 	    regerror(reti, &regex, line, sizeof(line));
-	    status2 = pthread_mutex_lock(&mutex2);
 	    fprintf(stderr, "Regex match failed: %s\n", line);
-	    status2 = pthread_mutex_unlock(&mutex2);
-	    //return 1;
 	}
 	    
 	// Free compiled regular expression
 	regfree(&regex);
-	//break;
+	//siguiente linea
         line = strtok(NULL, "\n");
         
     }
-    //printf("\nThread: %d , Coincidencias: %d\n", id,test);
     
 }
 
 int line_size(char * linea){
+	/*
+	tamanno en caracteres de una linea
+	*/
 	int size=0;
 	for(int i = 0; i < MAX_LINE_LENGTH && linea[i] != '\0'; i++){
 		size++;
@@ -84,16 +89,25 @@ int line_size(char * linea){
 	return size;
 }
 
-void leer(FILE *file,int id) {
-     int status;
+char * leer(FILE *file,char * buffer) {
+     /*
+     -Recibe un puntero a FILE (podriamos cambiarlo para que lo abra en todas las llamadas)...
+     -...y de esta manera no se comparta entre los hilos , tal vez ayuda
+     -Recibe un buffer tamanno BUFFERSIZE
+     -Bloquea con mutex
+     -Avanza en archivo
+     -Lee en archivo y va almacenando en buffer linea por linea
+     -Retorna buffer a funcion principal del hilo (Parse)
+     */
+     
      char line[MAX_LINE_LENGTH];
      
-     char buffer[BUFFERSIZE];
+     //char buffer[BUFFERSIZE];
      //limpiar el buffer
      for(int j=0;j<BUFFERSIZE-1;j++){
       buffer[j]=0;
     }
-     status = pthread_mutex_lock(&mutex);
+     
      //Empezar en inicio de archivo
      fseek(file,0, SEEK_SET);
      //avanzar en el archivo
@@ -117,6 +131,7 @@ void leer(FILE *file,int id) {
 	     if( (BUFFERSIZE - ocupado) < size){
 	     	break;	
 	     }
+	     
 	     else{
 	     	strcat(buffer,line);
 	     	ocupado+=size;
@@ -125,47 +140,34 @@ void leer(FILE *file,int id) {
 	     //printf(line);
         
      }
-     
-     status = pthread_mutex_unlock(&mutex);
-     //printf("%s",buffer);
-     
-     //voy a llamar a procesar desde aca por ahora
-     //despues decidimos si devolvemos buffer a parse
-     //para modularlo bien... esto es solo prueba
-     procesar(buffer,id);
-     sleep(1);
-     //return buffer;
+     sleep(0.3);
+     return buffer;
 }
 
 void *parse(void *threadarg) {
-
-  struct thread_data *my_data;
-
-  
-  int id;
-  FILE *file;
-
-  my_data = (struct thread_data *)threadarg;
-  id = my_data->thread_id;
-  file = my_data->file;
-
-  //while (!EOF){}
-  //MUTEX BLOQUEA
-  //leer(file, buffer);
-  //char buffer[BUFFERSIZE];
-  //leer(file,buffer);
-  int c = getc(file);
-  while (c != EOF) {
-      leer(file,id);
-      c = getc(file);
-   }
-  //leer(file);
-  //printf(buffer);
-  //MUTEX LIBERA
-  //PROCESAMIENTO
-  
-  
-  pthread_exit(NULL);
+    struct thread_data *my_data;
+    int id;
+    int status;
+    FILE *file;
+    my_data = (struct thread_data *)threadarg;
+    id = my_data->thread_id;
+    file = my_data->file;
+    
+    char buffer[BUFFERSIZE];
+    
+    int c = getc(file);
+    while (c != EOF) {
+    	//limpiar el buffer
+        for(int j=0;j<BUFFERSIZE-1;j++){
+            buffer[j]=0;
+        }
+        status = pthread_mutex_lock(&mutex);
+        leer(file,buffer);
+        status = pthread_mutex_unlock(&mutex);
+        procesar(buffer);
+        c = getc(file);
+    }
+    pthread_exit(NULL);
 }
 
 int main() {
@@ -175,7 +177,6 @@ int main() {
   FILE *fp = fopen(texto, "r");
   pthread_t threads[NUM_THREADS];
   status = pthread_mutex_init(&mutex,NULL);
-  status2 = pthread_mutex_init(&mutex,NULL);
 
   for (long i = 0; i < NUM_THREADS; i++) {
 
@@ -192,11 +193,12 @@ int main() {
   
   for (int i=0; i<NUM_THREADS; i++){
     status = pthread_join(threads[i],NULL);
-    status2 = pthread_join(threads[i],NULL);
   }
-  status = pthread_mutex_destroy(&mutex);
-  status2 = pthread_mutex_destroy(&mutex2);
   
+  
+  status = pthread_mutex_destroy(&mutex);
   fclose(fp);
+  //cuando ya los hilos terminaron y agregaron al output su texto procesado...
+  printf("%s \n",output);
   return 0;
 }
