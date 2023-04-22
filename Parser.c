@@ -4,12 +4,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <regex.h>
+#include<time.h>
 
 #define BUFFERSIZE 5000
-#define NUM_THREADS 2
+#define NUM_THREADS 5
 #define MAX_LINE_LENGTH 100
-#define expresion "war"
-#define texto "wap1200.txt"
+#define expresion "g"
+#define texto "DonQuixote.txt"
 #define MAX_OUTPUT_SIZE 1000000
 
 // Global
@@ -49,11 +50,11 @@ void procesar(char * buffer){
 	// Execute regular expression
 	reti = regexec(&regex, line, 0, NULL, 0);
 	if (!reti) {
-	    pthread_mutex_lock(&mutex);
+	    pthread_mutex_lock(&mutex2);
 	    strcat(output,line);
 	    strcat(output,"\n");
 	    sleep(0.2);
-	    pthread_mutex_unlock(&mutex);
+	    pthread_mutex_unlock(&mutex2);
 	    //printf("\n-----\n");
 	    //printf("Thread id: %d found match: %s: \n",id,line);
             //printf(line);
@@ -171,12 +172,18 @@ void *parse(void *threadarg) {
 }
 
 int main() {
+  //Registro del tiempo iniciado
+  clock_t start, end;
+  double execution_time;
+  start = clock();
+  
   printf("\nBuscando expresion regular: %s \n",expresion);
   int status,status2;
   //arriba esta el define de "texto" para cambiarlo + facil
   FILE *fp = fopen(texto, "r");
   pthread_t threads[NUM_THREADS];
   status = pthread_mutex_init(&mutex,NULL);
+  status2 = pthread_mutex_init(&mutex2,NULL);
 
   for (long i = 0; i < NUM_THREADS; i++) {
 
@@ -200,5 +207,10 @@ int main() {
   fclose(fp);
   //cuando ya los hilos terminaron y agregaron al output su texto procesado...
   printf("%s \n",output);
+  
+  //Final del registro del tiempo
+  end = clock();
+  execution_time = ((double)(end - start))/CLOCKS_PER_SEC;
+  printf("El tiempo de ejecucion fue de: %lf", execution_time);
   return 0;
 }
